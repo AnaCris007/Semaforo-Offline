@@ -1,136 +1,180 @@
-# Semáforo (projeto com Arduino)
+# 🚦 Projeto Semáforo com Sensor Ultrassônico (Arduino)
 
-Projeto de semáforo simples usando Arduino e um display LCD I2C 16x2. O sistema simula as fases de um semáforo (vermelho, amarelo e verde) acionando LEDs e exibindo mensagens no LCD. Há também um vídeo demonstrativo (link a ser adicionado posteriormente).
+Este projeto simula o funcionamento de um **semáforo inteligente**, utilizando um **sensor ultrassônico (HC-SR04)** para detectar a aproximação de veículos e iniciar automaticamente o ciclo de luzes (vermelho, amarelo e verde).  
+O código foi desenvolvido em **C++ com Programação Orientada a Objetos (POO)** e faz uso de **ponteiros** para gerenciar o sensor e o controle do semáforo.
 
-## Descrição
+---
 
-Este projeto implementa um semáforo básico conectado a um Arduino. O comportamento segue um ciclo: vermelho -> amarelo -> verde -> (verde estendido) -> amarelo -> reinício. Em cada fase os LEDs correspondentes acendem e o display LCD exibe uma mensagem indicando o estado.
+## Componentes Utilizados
 
-## Componentes usados
+| Quantidade | Componente | Descrição |
+|-------------|-------------|------------|
+| 1 | **Arduino Uno** | Microcontrolador principal do projeto |
+| 1 | **Sensor Ultrassônico HC-SR04** | Mede a distância até objetos (usado para detectar carros) |
+| 1 | **LED Vermelho** | Representa o sinal de “PARE” |
+| 1 | **LED Amarelo** | Representa o sinal de “ATENÇÃO” |
+| 1 | **LED Verde** | Representa o sinal de “SIGA” |
+| 3 | **Resistores (220 Ω)** | Protegem os LEDs |
+| Vários | **Jumpers (macho/macho)** | Fios de conexão |
+| 1 | **Protoboard** | Facilita a montagem dos componentes |
 
-- Arduino Uno (ou compatível)
-- 1 x LCD I2C 16x2 (endereço típico 0x27)
-- 3 x LEDs (vermelho, amarelo, verde)
-- 3 x resistores 220 Ω (para LEDs)
-- Jumpers e protoboard
-- Fonte USB para o Arduino
+---
 
-## Ligação / Fiação (mapa de pinos)
+## Esquema de Ligação
 
-- LED Vermelho: pino digital 10 -> resistor 220Ω -> ânodo LED -> cátodo -> GND
-- LED Amarelo: pino digital 9  -> resistor 220Ω -> ânodo LED -> cátodo -> GND
-- LED Verde: pino digital 8   -> resistor 220Ω -> ânodo LED -> cátodo -> GND
-- LCD I2C: VCC -> 5V, GND -> GND, SDA -> A4 (no Uno), SCL -> A5 (no Uno)
-	- Endereço I2C usado no código: 0x27
+**Sensor HC-SR04**
+| Pino | Conexão no Arduino |
+|------|--------------------|
+| VCC  | 5V |
+| GND  | GND |
+| TRIG | Pino 3 |
+| ECHO | Pino 4 |
 
-Observação: em placas diferentes do Uno (ex.: Mega, Nano Every) os pinos SDA/SCL podem variar; verifique o manual da sua placa.
+**LEDs**
+| Cor | Pino no Arduino |
+|------|----------------|
+| Vermelho | 8 |
+| Amarelo | 9 |
+| Verde | 10 |
 
-## Explicação do código
+---
 
-O sketch (abaixo) realiza o seguinte:
-
-- Inclui a biblioteca Wire e LiquidCrystal_I2C e inicializa o objeto `lcd` com o endereço 0x27 e dimensões 16x2.
-- Define constantes para os pinos dos LEDs (10, 9 e 8).
-- Em `setup()` configura os pinos como saída e inicializa o display, mostrando uma mensagem de inicialização.
-- Em `loop()` executa o ciclo do semáforo:
-	- Fase Vermelha: acende LED vermelho, mostra "SINAL VERMELHO / PARE!" por 6s
-	- Fase Amarela: acende LED amarelo, mostra "SINAL AMARELO / Atencao!" por 2s
-	- Fase Verde: acende LED verde, mostra "SINAL VERDE / Acelere" por 2s
-	- Tempo adicional no verde: atualiza mensagem do LCD por mais 2s
-	- Volta ao amarelo para preparar a parada por 2s
-	- O ciclo se repete automaticamente
-
-Função auxiliar `mostrarMensagem(String linha1, String linha2)` atualiza o LCD com duas linhas de texto.
-
-Edge cases / dicas rápidas:
-- Se o LCD não apresentar caracteres, verifique o endereço I2C (use um scanner I2C se necessário).
-- Ajuste os delays (durações) conforme desejado para simular tempos diferentes.
-
-## Instalação e upload
-
-1. Abra o Arduino IDE.
-2. Instale a biblioteca `LiquidCrystal_I2C` (Library Manager > procurar por "LiquidCrystal I2C" e instalar uma implementação compatível).
-3. Conecte seu Arduino ao computador e selecione a placa e porta corretas no IDE.
-4. Cole o código do sketch (abaixo) e faça o upload.
-
-## Código (sketch Arduino)
+## Código do Projeto
 
 ```cpp
-#include <Wire.h>
-#include <LiquidCrystal_I2C.h>
+#include <NewPing.h>
 
-LiquidCrystal_I2C lcd(0x27, 16, 2);
+// ======== CONFIGURAÇÕES DE PINOS ========
+#define TRIGGER_PIN 3
+#define ECHO_PIN 4
+#define MAX_DISTANCE 200 // distância máxima (em cm)
 
-// Definição dos pinos dos LEDs
-const int ledVermelho = 10;
+const int ledVermelho = 8;
 const int ledAmarelo  = 9;
-const int ledVerde    = 8;
+const int ledVerde    = 10;
+
+// ======== CLASSE SEMÁFORO ========
+class Semaforo {
+  private:
+	int vermelho, amarelo, verde;
+	NewPing* sonar; // ponteiro para o sensor ultrassônico
+
+  public:
+	Semaforo(int pinVermelho, int pinAmarelo, int pinVerde, NewPing* sensor) {
+	  vermelho = pinVermelho;
+	  amarelo  = pinAmarelo;
+	  verde    = pinVerde;
+	  sonar    = sensor;
+
+	  pinMode(vermelho, OUTPUT);
+	  pinMode(amarelo, OUTPUT);
+	  pinMode(verde, OUTPUT);
+
+	  digitalWrite(vermelho, HIGH);
+	  digitalWrite(amarelo, LOW);
+	  digitalWrite(verde, LOW);
+	}
+
+	int medirDistancia() {
+	  delay(100);
+	  return sonar->ping_cm();
+	}
+
+	void executarCiclo() {
+	  digitalWrite(vermelho, HIGH);
+	  digitalWrite(amarelo, LOW);
+	  digitalWrite(verde, LOW);
+	  delay(6000);
+
+	  digitalWrite(vermelho, LOW);
+	  digitalWrite(amarelo, HIGH);
+	  digitalWrite(verde, LOW);
+	  delay(2000);
+
+	  digitalWrite(vermelho, LOW);
+	  digitalWrite(amarelo, LOW);
+	  digitalWrite(verde, HIGH);
+	  delay(2000);
+
+	  delay(2000);
+
+	  digitalWrite(vermelho, LOW);
+	  digitalWrite(amarelo, HIGH);
+	  digitalWrite(verde, LOW);
+	  delay(2000);
+
+	  digitalWrite(vermelho, HIGH);
+	  digitalWrite(amarelo, LOW);
+	  digitalWrite(verde, LOW);
+	}
+};
+
+// ======== OBJETOS GLOBAIS ========
+NewPing sensor(TRIGGER_PIN, ECHO_PIN, MAX_DISTANCE);
+Semaforo* semaforo;
 
 void setup() {
-	// Inicializa os LEDs
-	pinMode(ledVermelho, OUTPUT);
-	pinMode(ledAmarelo, OUTPUT);
-	pinMode(ledVerde, OUTPUT);
-
-	// Inicializa o LCD
-	lcd.init();
-	lcd.backlight();
-
-	lcd.setCursor(0, 0);
-	lcd.print("   Semaforo   ");
-	lcd.setCursor(0, 1);
-	lcd.print("Inicializando...");
-	delay(2000);
-	lcd.clear();
+  semaforo = new Semaforo(ledVermelho, ledAmarelo, ledVerde, &sensor);
 }
 
 void loop() {
-	// --- Fase Vermelha (6 segundos) ---
-	digitalWrite(ledVermelho, HIGH);
-	digitalWrite(ledAmarelo, LOW);
-	digitalWrite(ledVerde, LOW);
-	mostrarMensagem("SINAL VERMELHO", "PARE!");
-	delay(6000);
+  int distancia = semaforo->medirDistancia();
 
-	// --- Fase Amarela (2 segundos) ---
-	digitalWrite(ledVermelho, LOW);
-	digitalWrite(ledAmarelo, HIGH);
-	digitalWrite(ledVerde, LOW);
-	mostrarMensagem("SINAL AMARELO", "Atencao!");
-	delay(2000);
+  if (distancia > 0 && distancia < 30) {
+	semaforo->executarCiclo();
+  }
 
-	// --- Fase Verde (2 segundos) ---
-	digitalWrite(ledVermelho, LOW);
-	digitalWrite(ledAmarelo, LOW);
-	digitalWrite(ledVerde, HIGH);
-	mostrarMensagem("SINAL VERDE", "Acelere");
-	delay(2000);
-
-	// --- Tempo adicional no verde (2 segundos) ---
-	mostrarMensagem("SINAL VERDE", "Vai rapido!");
-	delay(2000);
-
-	// --- Fase Amarela novamente (2 segundos) ---
-	digitalWrite(ledVermelho, LOW);
-	digitalWrite(ledAmarelo, HIGH);
-	digitalWrite(ledVerde, LOW);
-	mostrarMensagem("SINAL AMARELO", "Preparar parada");
-	delay(2000);
-
-	// Reinicia o ciclo automaticamente
-}
-
-// Função auxiliar para atualizar o LCD
-void mostrarMensagem(String linha1, String linha2) {
-	lcd.clear();
-	lcd.setCursor(0, 0);
-	lcd.print(linha1);
-	lcd.setCursor(0, 1);
-	lcd.print(linha2);
+  delay(100);
 }
 ```
 
-## Vídeo demonstrativo
+---
 
+## Como Funciona
 
+1. O sensor ultrassônico mede a distância constantemente.  
+2. Quando detecta um objeto a menos de **30 cm**, o semáforo inicia o ciclo completo:
+   - 🔴 Vermelho — 6 segundos  
+   - 🟡 Amarelo — 2 segundos  
+   - 🟢 Verde — 2 segundos + 2 segundos extras  
+   - 🟡 Amarelo — 2 segundos  
+   - E então retorna ao vermelho
+3. Caso nada esteja próximo, o semáforo permanece no vermelho.
 
+---
+
+## 🛠️ Como Montar
+
+1. Monte o circuito seguindo o esquema de ligação acima.  
+2. Faça o upload do código no **Arduino IDE**.  
+3. Instale a biblioteca **NewPing**:  
+   - Vá em **Sketch → Incluir Biblioteca → Gerenciar Bibliotecas...**  
+   - Procure por **NewPing** e clique em **Instalar**.  
+4. Conecte o Arduino à alimentação (USB ou externa).  
+5. Aproxime um objeto do sensor para iniciar o ciclo do semáforo.
+
+---
+
+## Imagens do Projeto
+
+![Semaforo Montado](assets/semaforo.jpeg)
+![Circuito no Protoboard](assets/circuito.jpeg)
+
+---
+
+## 🎥 Demonstração em Vídeo
+
+🔗 [Clique aqui para assistir à demonstração do projeto](https://youtube.com/shorts/XKaNtIyUqfg?feature=share)  
+---
+
+## Conceitos Utilizados
+
+- Programação Orientada a Objetos (POO)
+- Ponteiros e alocação dinâmica (`new`)
+- Uso de sensores ultrassônicos
+- Controle de LEDs e tempo (`delay`)
+- Integração com biblioteca **NewPing**
+
+---
+
+💡 Desenvolvido como exercício de eletrônica e POO com Arduino.
